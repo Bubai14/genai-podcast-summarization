@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  podcast-summarization
+
+  SAM Template for podcast-summarization
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+    MemorySize: 128
+
+Resources:
+  # REST API
+  PodcastSummarizationApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stack ${AWS::StackName}
+        - ResourceName: PodcastSummarizationApi
+      StageName: Prod
+      DefinitionBody:
+        openapi: '3.0'
+        info: { }
+        paths:
+          /:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PreSignedFunction.Arn}/invocations
+              responses: { }
+      EndpointConfiguration: REGIONAL
+      TracingEnabled: true
+  PreSignedFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/
+      Handler: podcastinputhandler.lambda_handler
+      Runtime: python3.10
+      Timeout: 600
+      Environment:
+        Variables:
+          UploadBucket: !Ref S3UploadBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref S3UploadBucket
+        ## This permission allows the Lambda function to request signed URLs
+        ## for objects that will be publicly readable. Uncomment if you want this ACL.
+        - Statement:
+           - Effect: Allow
+             Resource: !Sub 'arn:aws:s3:::${S3UploadBucket}/'
+             Action:
+               - s3:*
+      Events:
+        HelloWorld:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /signedurl
+            Method: get
+            RestApiId: !Ref PodcastSummarizationApi
+  TranscribeFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/
+      Handler: transcribehandler.lambda_handler
+      Runtime: python3.10
+      Timeout: 600
+      Environment:
+        Variables:
+          UploadBucket: !Ref S3UploadBucket
+      Policies:
+        - AmazonS3FullAccess
+        - AmazonTranscribeFullAccess
+        - AWSStepFunctionsFullAccess
+  LLMFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/
+      Handler: llminferencehandler.lambda_handler
+      Runtime: python3.10
+      Timeout: 600
+      Environment:
+        Variables:
+          UploadBucket: !Ref S3UploadBucket
+          PodcastQueueUrl: !Ref PodcastQueue
+      Policies:
+        - AmazonS3FullAccess
+        - AmazonTranscribeFullAccess
+        - AWSStepFunctionsFullAccess
+        - AmazonBedrockFullAccess
+        - AmazonSQSFullAccess
+  # Configurations for Websockets
+  PodcastSummarizeWebSocket:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: PodcastSummarizeWebSocket
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PodcastSummarizeWebSocket
+      RouteKey: $connect
+      AuthorizationType: NONE
+      OperationName: ConnectRoute
+      Target: !Join
+        - "/"
+        - - "integrations"
+          - !Ref ConnectIntegration
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PodcastSummarizeWebSocket
+      Description: Connect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Connect.Arn}/invocations
+  Connect:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/websockets/
+      Handler: connect.lambda_handler
+      Runtime: python3.10
+      Timeout: 600
+  ConnectPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - PodcastSummarizeWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Connect
+      Principal: apigateway.amazonaws.com
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PodcastSummarizeWebSocket
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: DisconnectRoute
+      Target: !Join
+        - "/"
+        - - "integrations"
+          - !Ref DisconnectIntegration
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PodcastSummarizeWebSocket
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Disconnect.Arn}/invocations
+  Disconnect:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/websockets/
+      Handler: disconnect.lambda_handler
+      Runtime: python3.10
+      Timeout: 600
+  DisconnectPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - PodcastSummarizeWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Disconnect
+      Principal: apigateway.amazonaws.com
+  SummarizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PodcastSummarizeWebSocket
+      RouteKey: summarize
+      AuthorizationType: NONE
+      OperationName: Summarize
+      ModelSelectionExpression: "${request.body.action}"
+      Target: !Join
+        - "/"
+        - - "integrations"
+          - !Ref SummarizeIntegration
+  SummarizeIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PodcastSummarizeWebSocket
+      Description: Summarize Integration
+      IntegrationType: AWS_PROXY
+      TemplateSelectionExpression: "${request.body.action}"
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Summarize.Arn}/invocations
+  Summarize:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/websockets
+      Handler: summarize.lambda_handler
+      Runtime: python3.10
+      Timeout: 600
+      Environment:
+        Variables:
+          StepFunctionArn: !GetAtt PodcastSummarizationStateMachine.Arn
+          PodcastQueueUrl: !Ref PodcastQueue
+      Policies:
+        - AmazonAPIGatewayInvokeFullAccess
+        - AWSStepFunctionsFullAccess
+        - AmazonSQSFullAccess
+  SummarizePermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - PodcastSummarizeWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Summarize
+      Principal: apigateway.amazonaws.com
+  Deployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+      - ConnectRoute
+      - Summarize
+      - DisconnectRoute
+    Properties:
+      ApiId: !Ref PodcastSummarizeWebSocket
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: Prod
+      Description: Prod Stage
+      DeploymentId: !Ref Deployment
+      ApiId: !Ref PodcastSummarizeWebSocket
+  S3UploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - HEAD
+            AllowedOrigins:
+              - "*"
+  # State machine definition
+  PodcastSummarizationStateMachine:
+    Type: AWS::Serverless::StateMachine # More info about State Machine Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-statemachine.html
+    Properties:
+      DefinitionUri: events/podcast_workflow_asl.json
+      DefinitionSubstitutions:
+        TranscribeFunctionArn: !GetAtt TranscribeFunction.Arn
+        LLMFunctionArn: !GetAtt LLMFunction.Arn
+      Policies:
+        - AWSLambda_FullAccess
+        - CloudWatchFullAccess
+      Logging:
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StateMachineLogGroup.Arn
+        IncludeExecutionData: false
+        Level: 'ALL'
+  PublishSummary:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/websockets
+      Handler: publishsummary.lambda_handler
+      Runtime: python3.10
+      Timeout: 30
+      Events:
+        SqsJobQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PodcastQueue.Arn
+            BatchSize: 1
+      Policies:
+        - AmazonAPIGatewayInvokeFullAccess
+        - AWSStepFunctionsFullAccess
+        - AmazonSQSFullAccess
+  ##########################################################################
+  #  Step Function Log Group                                              #
+  ##########################################################################
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join [ "/", [ "stepfunctions", PodcastSummarizationStateMachine ] ]
+  ##########################################################################
+  #  SQS Queue                                                             #
+  ##########################################################################
+  PodcastQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: podcast-queue
+      VisibilityTimeout: 30
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  HelloWorldApi:
+    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+    Value: !Sub "https://${PodcastSummarizationApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/signedurl/"
+  HelloWorldFunction:
+    Description: "Hello World Lambda Function ARN"
+    Value: !GetAtt PreSignedFunction.Arn
+  HelloWorldFunctionIamRole:
+    Description: "Implicit IAM Role created for Hello World function"
+    Value: !GetAtt PreSignedFunction.Arn
+  S3UploadBucketName:
+    Description: "S3 bucket for application uploads"
+    Value: !Ref 'S3UploadBucket'
+  WebSocketURI:
+    Description: "The WSS Protocol URI to connect to"
+    Value:
+      !Join [
+        "",
+        [
+          "wss://",
+          !Ref PodcastSummarizeWebSocket,
+          ".execute-api.",
+          !Ref "AWS::Region",
+          ".amazonaws.com/",
+          !Ref "Stage",
+        ],
+      ]

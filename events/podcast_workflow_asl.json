@@ -1,0 +1,61 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Transcribe",
+  "States": {
+    "Transcribe": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${TranscribeFunctionArn}",
+        "Payload": {
+          "connectionId.$": "$.connectionId",
+          "publishUrl.$": "$.publishUrl",
+          "prompt.$": "$.prompt",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "LLM",
+      "ResultPath": null
+    },
+    "LLM": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${LLMFunctionArn}",
+        "Payload": {
+          "connectionId.$": "$.connectionId",
+          "publishUrl.$": "$.publishUrl",
+          "prompt.$": "$.prompt",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "End": true
+    }
+  }
+}
