@@ -28,7 +28,10 @@ def lambda_handler(event, context):
     body = str(event["body"])
     logger.info(f"body:{body}")
     prompt = json.loads(body)['prompt']
+    filename = json.loads(body)['file']
     logger.info(f"prompt:{prompt}")
+    logger.info(f"filename:{filename}")
+
     connectionId = event["requestContext"]["connectionId"]
     PUBLISH_URL = "https://" + str(event["requestContext"]["domainName"]) + "/" + str(event["requestContext"]["stage"])
     logger.info(f"Publish URL:{PUBLISH_URL}")
@@ -37,7 +40,7 @@ def lambda_handler(event, context):
 
     # Invoke the step function workflow
     logger.info(f"StepFunctionArn:{STEP_FUNCTION_ARN}")
-    input = {'TransactionId': transactionID, 'connectionId': connectionId, 'publishUrl': PUBLISH_URL, 'prompt': prompt}
+    input = {'TransactionId': transactionID, 'connectionId': connectionId, 'publishUrl': PUBLISH_URL, 'prompt': prompt, 'filename': filename}
     try:
         summary = sfn_client.start_execution(
             stateMachineArn=STEP_FUNCTION_ARN,

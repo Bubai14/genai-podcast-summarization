@@ -20,6 +20,7 @@ resolve_s3 = true
 s3_prefix = "podcast-summarization"
 region = "us-west-2"
 image_repositories = []
+profile = "bubai-bal"
 
 [default.package.parameters]
 resolve_s3 = true

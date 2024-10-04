@@ -17,7 +17,6 @@ BUCKET_NAME = os.getenv("UploadBucket")
 # Initialize the transcribe
 transcribe = boto3.client('transcribe')
 job_name = "transcribe_podcast"
-job_uri = f"s3://{BUCKET_NAME}/RadioOpenSource-Harold_Bloom-Melville.mp3"
 output_job_uri = BUCKET_NAME
 output_loc = "transcribe/"
 
@@ -28,6 +27,11 @@ sf = boto3.client('stepfunctions')
 def lambda_handler(event, context):
     logger.info("Event:", event)
     task_token = str(event['token'])
+    filename = str(event['filename'])
+    logger.info(f"filename:{filename}")
+
+    # Form the job uri
+    job_uri = f"s3://{BUCKET_NAME}/{filename}"
 
     # Check if transcription job exists, then delete
     check_transcription_job()

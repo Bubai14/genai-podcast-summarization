@@ -11,6 +11,7 @@
           "connectionId.$": "$.connectionId",
           "publishUrl.$": "$.publishUrl",
           "prompt.$": "$.prompt",
+          "filename.$": "$.filename",
           "token.$": "$$.Task.Token"
         }
       },
