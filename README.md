@@ -57,13 +57,13 @@ The template will display output values on successful stack execution
 - UI Bucket Name
 
 ## Test
-Perform these steps to test the application
-
-- Login to the AWS Console and upload the the contents of web/build folder to the UI Bucket displayed in the output values.
-- Open a browser and hit the cloudfront url copied from the output values.
-
-
-
+Login to the AWS Console and upload the the contents of web/build folder to the UI Bucket displayed in the output values. Open a browser and hit the cloudfront url copied from the output values. The below screen will appear.
+![Alt text](images/HomePage.png)
+Add your relevant AWS credentials and select the audio file to upload. Click 'Generate' to generate the presigned url, then click 'Upload' to upload the file. Add the websocket url copied from output values into the Websocket URL field
+and click on 'Connect'. Add the below prompt in the prompt text box and click 'Send'.
+```text
+Human:Summarize the following text in a concise manner. Limit the response to 1000 words. Write the response in bullet points.Assistant:
+```
 
 ## Cleanup
 
