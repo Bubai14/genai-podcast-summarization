@@ -1,0 +1,5 @@
+Removing secrets from git commit history
+    pip install git-filter-repo
+    git filter-repo --path <path to file1>  --path <path to file2> --invert-paths --force
+
+

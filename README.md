@@ -24,7 +24,7 @@ The AWS Toolkit is an open source plug-in for popular IDEs that uses the SAM CLI
 * [Visual Studio](https://docs.aws.amazon.com/toolkit-for-visual-studio/latest/user-guide/welcome.html)
 
 ## Architecture
-![Alt text](podcast-architecture.png)
+![Alt text](images/podcast-architecture.png)
 
 ## Deploy the sample application
 
